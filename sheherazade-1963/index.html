@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sheherazade 1963 - OK.ru Player</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Arial, "Malgun Gothic", sans-serif;
+      background: #101113;
+      color: #f5f5f5;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #101113;
+    }
+
+    main {
+      width: min(1920px, 100vw);
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .player-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      display: block;
+      border: 0;
+    }
+
+    .subtitle-overlay {
+      position: absolute;
+      left: 5%;
+      right: 5%;
+      bottom: 8%;
+      z-index: 2;
+      pointer-events: none;
+      text-align: center;
+      font-size: clamp(24px, 2.8vw, 56px);
+      line-height: 1.28;
+      font-weight: 700;
+      color: #fff;
+      text-shadow:
+        -2px -2px 0 #000,
+        2px -2px 0 #000,
+        -2px 2px 0 #000,
+        2px 2px 0 #000,
+        0 4px 12px rgba(0, 0, 0, 0.9);
+      white-space: pre-line;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 14px;
+      padding: 14px;
+      background: #1a1c20;
+      border: 1px solid #333840;
+      border-radius: 8px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      min-height: 38px;
+      border: 1px solid #464d58;
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #242832;
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #303642;
+    }
+
+    input[type="range"] {
+      flex: 1 1 260px;
+      min-width: 180px;
+    }
+
+    .time {
+      min-width: 180px;
+      color: #d9dde5;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status {
+      color: #aeb6c2;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="player-wrap">
+      <iframe
+        src="https://ok.ru/videoembed/7862476212826?nochat=1"
+        allow="autoplay; fullscreen"
+        allowfullscreen
+        title="Sheherazade 1963 OK.ru video player">
+      </iframe>
+      <div class="subtitle-overlay" id="subtitleText"></div>
+    </div>
+
+    <section class="controls" aria-label="Subtitle player">
+      <div class="row">
+        <button id="playPause" type="button">Play</button>
+        <button id="reset" type="button">Reset</button>
+        <button id="backFive" type="button">-5s</button>
+        <button id="forwardFive" type="button">+5s</button>
+        <button id="subtitleEarlierMinute" type="button">-60s</button>
+        <button id="subtitleEarlier" type="button">-0.5s</button>
+        <button id="subtitleLater" type="button">+0.5s</button>
+        <button id="subtitleLaterMinute" type="button">+60s</button>
+        <button id="alignFirst" type="button">First line now</button>
+      </div>
+
+      <div class="row">
+        <input id="timeline" type="range" min="0" max="0" value="0" step="0.1">
+        <span class="time" id="timeLabel">00:00:00.0 / 00:00:00.0</span>
+      </div>
+
+      <div class="status" id="status">
+        Loading Sheherazade.1963.Korean.gpt-for-LeeJungmi.srt...
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const defaultSubtitle = "Sheherazade.1963.Korean.gpt-for-LeeJungmi.srt";
+    const subtitleText = document.querySelector("#subtitleText");
+    const playPause = document.querySelector("#playPause");
+    const reset = document.querySelector("#reset");
+    const backFive = document.querySelector("#backFive");
+    const forwardFive = document.querySelector("#forwardFive");
+    const subtitleEarlierMinute = document.querySelector("#subtitleEarlierMinute");
+    const subtitleEarlier = document.querySelector("#subtitleEarlier");
+    const subtitleLater = document.querySelector("#subtitleLater");
+    const subtitleLaterMinute = document.querySelector("#subtitleLaterMinute");
+    const alignFirst = document.querySelector("#alignFirst");
+    const timeline = document.querySelector("#timeline");
+    const timeLabel = document.querySelector("#timeLabel");
+    const status = document.querySelector("#status");
+
+    let cues = [];
+    let startedAt = 0;
+    let pausedAt = 0;
+    let duration = 0;
+    let subtitleDelay = 0;
+    let playing = false;
+    let rafId = 0;
+
+    function formatTime(seconds) {
+      const safe = Math.max(0, seconds);
+      const h = Math.floor(safe / 3600);
+      const m = Math.floor((safe % 3600) / 60);
+      const s = Math.floor(safe % 60);
+      const t = Math.floor((safe % 1) * 10);
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${t}`;
+    }
+
+    function currentTime() {
+      if (!playing) {
+        return pausedAt;
+      }
+
+      return (performance.now() - startedAt) / 1000;
+    }
+
+    function cleanText(html) {
+      const normalized = html
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&quot;/gi, "\"")
+        .replace(/&#39;/gi, "'");
+
+      const div = document.createElement("div");
+      div.innerHTML = normalized;
+      return div.textContent
+        .replace(/\r/g, "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    function parseSmi(text) {
+      const matches = [...text.matchAll(/<sync\s+start\s*=\s*(\d+)[^>]*>([\s\S]*?)(?=<sync\s+start\s*=|\s*<\/body>|\s*<\/sami>|$)/gi)];
+
+      return matches
+        .map((match, index) => ({
+          start: Number(match[1]) / 1000,
+          end: matches[index + 1] ? Number(matches[index + 1][1]) / 1000 : Number(match[1]) / 1000 + 4,
+          text: cleanText(match[2])
+        }))
+        .filter((cue) => cue.text && cue.text.toLowerCase() !== "&nbsp;");
+    }
+
+    function parseSrt(text) {
+      return text
+        .replace(/\r/g, "")
+        .split(/\n\n+/)
+        .map((block) => {
+          const lines = block.trim().split("\n");
+          const timeLine = lines.find((line) => line.includes("-->"));
+          if (!timeLine) {
+            return null;
+          }
+
+          const [start, end] = timeLine.split("-->").map(parseSrtTime);
+          const body = lines.slice(lines.indexOf(timeLine) + 1).join("\n").trim();
+          return { start, end, text: cleanText(body) };
+        })
+        .filter(Boolean);
+    }
+
+    function parseSrtTime(value) {
+      const parts = value.trim().replace(",", ".").split(":");
+      const seconds = Number(parts.pop());
+      const minutes = Number(parts.pop());
+      const hours = Number(parts.pop() || 0);
+      return hours * 3600 + minutes * 60 + seconds;
+    }
+
+    function loadSubtitleText(text, name) {
+      cues = /\.srt$/i.test(name) ? parseSrt(text) : parseSmi(text);
+      duration = cues.length ? cues[cues.length - 1].end : 0;
+      timeline.max = String(Math.max(duration, 0));
+      seek(0);
+      status.textContent = cues.length
+        ? `${name} loaded: ${cues.length} subtitle lines. Subtitle delay: ${subtitleDelay.toFixed(1)}s`
+        : `${name} loaded, but no subtitle lines were found.`;
+    }
+
+    function decodeSubtitle(buffer) {
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+      } catch (error) {
+        return new TextDecoder("euc-kr").decode(buffer);
+      }
+    }
+
+    function findCue(time) {
+      const adjusted = time - subtitleDelay;
+      return cues.find((cue) => adjusted >= cue.start && adjusted < cue.end);
+    }
+
+    function render() {
+      const time = currentTime();
+      const cue = findCue(time);
+      subtitleText.textContent = cue ? cue.text : "";
+      timeline.value = String(Math.min(time, duration || time));
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
+
+      if (playing) {
+        rafId = requestAnimationFrame(render);
+      }
+    }
+
+    function play() {
+      if (!cues.length) {
+        status.textContent = "Load a subtitle file first.";
+        return;
+      }
+
+      startedAt = performance.now() - pausedAt * 1000;
+      playing = true;
+      playPause.textContent = "Pause";
+      render();
+    }
+
+    function pause() {
+      pausedAt = currentTime();
+      playing = false;
+      playPause.textContent = "Play";
+      cancelAnimationFrame(rafId);
+      render();
+    }
+
+    function seek(seconds) {
+      pausedAt = Math.max(0, Math.min(seconds, duration || seconds));
+      if (playing) {
+        startedAt = performance.now() - pausedAt * 1000;
+      }
+      render();
+    }
+
+    async function loadDefaultSubtitle() {
+      try {
+        const response = await fetch(defaultSubtitle);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const buffer = await response.arrayBuffer();
+        loadSubtitleText(decodeSubtitle(buffer), defaultSubtitle);
+      } catch (error) {
+        status.textContent = "Subtitle could not be loaded automatically. Open this page through a local server.";
+      }
+    }
+
+    playPause.addEventListener("click", togglePlayback);
+
+    reset.addEventListener("click", () => {
+      pause();
+      seek(0);
+    });
+
+    backFive.addEventListener("click", () => seek(currentTime() - 5));
+    forwardFive.addEventListener("click", () => seek(currentTime() + 5));
+
+    function moveSubtitleTime(seconds) {
+      seek(currentTime() + seconds);
+      status.textContent = `Subtitle time: ${formatTime(currentTime())}`;
+    }
+
+    function togglePlayback() {
+      playing ? pause() : play();
+    }
+
+    subtitleEarlierMinute.addEventListener("click", () => moveSubtitleTime(-60));
+    subtitleEarlier.addEventListener("click", () => moveSubtitleTime(-0.5));
+    subtitleLater.addEventListener("click", () => moveSubtitleTime(0.5));
+    subtitleLaterMinute.addEventListener("click", () => moveSubtitleTime(60));
+
+    alignFirst.addEventListener("click", () => {
+      if (!cues.length) {
+        status.textContent = "Load a subtitle file first.";
+        return;
+      }
+
+      subtitleDelay = currentTime() - cues[0].start;
+      status.textContent = `Subtitle delay: ${subtitleDelay.toFixed(1)}s`;
+      render();
+    });
+
+    timeline.addEventListener("input", () => {
+      seek(Number(timeline.value));
+    });
+
+    document.addEventListener("keydown", (event) => {
+      const target = event.target;
+      const isTyping = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target instanceof HTMLSelectElement
+        || target.isContentEditable;
+
+      if (isTyping) {
+        return;
+      }
+
+      if (event.code === "Space") {
+        event.preventDefault();
+        togglePlayback();
+        return;
+      }
+
+      if (event.key === "[") {
+        event.preventDefault();
+        moveSubtitleTime(-0.5);
+        return;
+      }
+
+      if (event.key === "]") {
+        event.preventDefault();
+        moveSubtitleTime(0.5);
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveSubtitleTime(-5);
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        moveSubtitleTime(5);
+      }
+    });
+
+    loadDefaultSubtitle();
+  </script>
+</body>
+</html>
