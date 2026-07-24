@@ -137,7 +137,6 @@
         <button id="subtitleEarlier" type="button">-0.5s</button>
         <button id="subtitleLater" type="button">+0.5s</button>
         <button id="subtitleLaterMinute" type="button">+60s</button>
-        <button id="alignFirst" type="button">First line now</button>
       </div>
 
       <div class="row">
@@ -162,7 +161,6 @@
     const subtitleEarlier = document.querySelector("#subtitleEarlier");
     const subtitleLater = document.querySelector("#subtitleLater");
     const subtitleLaterMinute = document.querySelector("#subtitleLaterMinute");
-    const alignFirst = document.querySelector("#alignFirst");
     const timeline = document.querySelector("#timeline");
     const timeLabel = document.querySelector("#timeLabel");
     const status = document.querySelector("#status");
@@ -351,60 +349,8 @@
     subtitleLater.addEventListener("click", () => moveSubtitleTime(0.5));
     subtitleLaterMinute.addEventListener("click", () => moveSubtitleTime(60));
 
-    alignFirst.addEventListener("click", () => {
-      if (!cues.length) {
-        status.textContent = "Load a subtitle file first.";
-        return;
-      }
-
-      subtitleDelay = currentTime() - cues[0].start;
-      status.textContent = `Subtitle delay: ${subtitleDelay.toFixed(1)}s`;
-      render();
-    });
-
     timeline.addEventListener("input", () => {
       seek(Number(timeline.value));
-    });
-
-    document.addEventListener("keydown", (event) => {
-      const target = event.target;
-      const isTyping = target instanceof HTMLInputElement
-        || target instanceof HTMLTextAreaElement
-        || target instanceof HTMLSelectElement
-        || target.isContentEditable;
-
-      if (isTyping) {
-        return;
-      }
-
-      if (event.code === "Space") {
-        event.preventDefault();
-        togglePlayback();
-        return;
-      }
-
-      if (event.key === "[") {
-        event.preventDefault();
-        moveSubtitleTime(-0.5);
-        return;
-      }
-
-      if (event.key === "]") {
-        event.preventDefault();
-        moveSubtitleTime(0.5);
-        return;
-      }
-
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        moveSubtitleTime(-5);
-        return;
-      }
-
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        moveSubtitleTime(5);
-      }
     });
 
     loadDefaultSubtitle();
